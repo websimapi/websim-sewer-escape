@@ -13,42 +13,79 @@ class SewerGame {
     this.gameStarted = false;
     this.audio = new Audio('/Underground Sewer - Sonauto.wav');
     this.audio.loop = true;
-
+    this.flashlight = null;
+    this.waterMesh = null;
     this.init();
     this.setupEventListeners();
   }
 
   init() {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.shadowMap.enabled = true;
     document.getElementById('gameContainer').appendChild(this.renderer.domElement);
+    
+    // Darker ambient lighting for more atmospheric feel
+    const ambientLight = new THREE.AmbientLight(0x202020);
+    this.scene.add(ambientLight);
+
+    // Create and position flashlight
+    this.createFlashlight();
     
     // Initial camera position
     this.camera.position.set(0, 0.5, 2);
     this.camera.rotation.x = -0.1;
 
-    // Add lighting
-    const ambientLight = new THREE.AmbientLight(0x404040);
-    const pointLight = new THREE.PointLight(0x404040, 2);
-    pointLight.position.set(0, 1, 2);
-    this.scene.add(ambientLight, pointLight);
-
     this.createTunnel();
+    this.createWater();
+  }
+
+  createFlashlight() {
+    const flashlight = new THREE.SpotLight(0xffffcc, 2);
+    flashlight.position.set(0, 0.5, 1.5);
+    flashlight.angle = Math.PI / 6;
+    flashlight.penumbra = 0.3;
+    flashlight.decay = 1.5;
+    flashlight.distance = 8;
+    flashlight.castShadow = true;
+
+    // Attach flashlight to camera
+    this.camera.add(flashlight);
+    this.scene.add(this.camera);
+    this.flashlight = flashlight;
+  }
+
+  createWater() {
+    const waterGeometry = new THREE.PlaneGeometry(4, this.segmentLength * this.tunnelLength);
+    const waterMaterial = new THREE.MeshPhongMaterial({
+      color: 0x224455,
+      transparent: true,
+      opacity: 0.6,
+      shininess: 90
+    });
+    this.waterMesh = new THREE.Mesh(waterGeometry, waterMaterial);
+    this.waterMesh.rotation.x = -Math.PI / 2;
+    this.waterMesh.position.y = -1.8;
+    this.waterMesh.position.z = -this.tunnelLength * this.segmentLength / 2;
+    this.scene.add(this.waterMesh);
   }
 
   createTunnelSegment(position) {
-    const geometry = new THREE.CylinderGeometry(2, 2, this.segmentLength, 16, 1, true);
+    const geometry = new THREE.CylinderGeometry(2, 2, this.segmentLength, 32, 1, true);
     const material = new THREE.MeshPhongMaterial({
       color: 0x555555,
       side: THREE.BackSide,
       wireframe: false,
-      roughness: 0.8,
+      roughness: 0.9,
+      metalness: 0.1,
+      bumpScale: 0.02
     });
 
     const segment = new THREE.Mesh(geometry, material);
     segment.rotation.x = Math.PI / 2;
     segment.position.z = position;
+    segment.castShadow = true;
+    segment.receiveShadow = true;
     
-    // Add details to make it look more like a sewer
     this.addSewerDetails(segment);
     
     this.tunnelSegments.push(segment);
@@ -56,17 +93,49 @@ class SewerGame {
   }
 
   addSewerDetails(segment) {
-    // Add pipes along the walls
+    // Add main pipes
     for (let i = 0; i < 4; i++) {
-      const pipeGeometry = new THREE.CylinderGeometry(0.1, 0.1, this.segmentLength, 8);
-      const pipeMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+      const pipeGeometry = new THREE.CylinderGeometry(0.15, 0.15, this.segmentLength, 8);
+      const pipeMaterial = new THREE.MeshPhongMaterial({ 
+        color: 0x333333,
+        roughness: 0.7,
+        metalness: 0.3
+      });
       const pipe = new THREE.Mesh(pipeGeometry, pipeMaterial);
       
       pipe.rotation.x = Math.PI / 2;
       pipe.position.x = Math.cos(i * Math.PI / 2) * 1.8;
       pipe.position.y = Math.sin(i * Math.PI / 2) * 1.8;
+      pipe.castShadow = true;
       
       segment.add(pipe);
+
+      // Add smaller pipes and valves
+      if (Math.random() > 0.7) {
+        const valveGeometry = new THREE.TorusGeometry(0.2, 0.05, 16, 32);
+        const valve = new THREE.Mesh(valveGeometry, pipeMaterial);
+        valve.position.x = pipe.position.x * 1.1;
+        valve.position.y = pipe.position.y * 1.1;
+        valve.rotation.y = Math.PI / 2;
+        segment.add(valve);
+      }
+    }
+
+    // Add dripping water particles
+    if (Math.random() > 0.8) {
+      const dripsGeometry = new THREE.SphereGeometry(0.02, 8, 8);
+      const dripsMaterial = new THREE.MeshPhongMaterial({
+        color: 0x6688aa,
+        transparent: true,
+        opacity: 0.6
+      });
+      for (let i = 0; i < 5; i++) {
+        const drip = new THREE.Mesh(dripsGeometry, dripsMaterial);
+        drip.position.x = (Math.random() - 0.5) * 3;
+        drip.position.y = Math.random() * 2 - 1;
+        drip.position.z = (Math.random() - 0.5) * this.segmentLength;
+        segment.add(drip);
+      }
     }
   }
 
@@ -80,11 +149,18 @@ class SewerGame {
     this.tunnelSegments.forEach(segment => {
       segment.position.z += this.speed;
       
-      // If segment is behind camera, move it to the end of the tunnel
       if (segment.position.z > this.segmentLength) {
         segment.position.z = -this.tunnelLength * this.segmentLength + this.segmentLength;
       }
     });
+
+    // Move water with tunnel
+    if (this.waterMesh) {
+      this.waterMesh.position.z += this.speed;
+      if (this.waterMesh.position.z > 0) {
+        this.waterMesh.position.z = -this.tunnelLength * this.segmentLength / 2;
+      }
+    }
     
     this.distance += this.speed;
     document.getElementById('distanceCounter').textContent = Math.floor(this.distance);
@@ -115,17 +191,25 @@ class SewerGame {
       this.renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // Basic keyboard controls
+    // Enhanced keyboard controls for flashlight movement
     document.addEventListener('keydown', (e) => {
       if (!this.gameStarted) return;
       
       const rotationSpeed = 0.05;
+      const flashlightSpeed = 0.1;
+      
       switch(e.key) {
         case 'ArrowLeft':
           this.camera.rotation.z += rotationSpeed;
           break;
         case 'ArrowRight':
           this.camera.rotation.z -= rotationSpeed;
+          break;
+        case 'ArrowUp':
+          this.flashlight.angle = Math.max(this.flashlight.angle - 0.1, Math.PI / 12);
+          break;
+        case 'ArrowDown':
+          this.flashlight.angle = Math.min(this.flashlight.angle + 0.1, Math.PI / 4);
           break;
       }
     });
