@@ -10,6 +10,8 @@ class SewerGame {
     this.tunnelSegments = [];
     this.tunnelLength = 50;
     this.segmentLength = 5;
+    this.tunnelRadius = 2;
+    this.waterLevel = -1.5;
     this.gameStarted = false;
     this.audio = new Audio('/Underground Sewer - Sonauto.wav');
     this.audio.loop = true;
@@ -22,62 +24,49 @@ class SewerGame {
   init() {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.getElementById('gameContainer').appendChild(this.renderer.domElement);
     
-    // Darker ambient lighting for more atmospheric feel
-    const ambientLight = new THREE.AmbientLight(0x202020);
+    const ambientLight = new THREE.AmbientLight(0x151515);
     this.scene.add(ambientLight);
 
-    // Create and position flashlight
     this.createFlashlight();
     
-    // Initial camera position
-    this.camera.position.set(0, 0.5, 2);
-    this.camera.rotation.x = -0.1;
+    this.camera.position.set(0, 0.2, 2);
+    this.camera.rotation.x = -0.15;
 
     this.createTunnel();
     this.createWater();
   }
 
   createFlashlight() {
-    const flashlight = new THREE.SpotLight(0xffffcc, 2);
-    flashlight.position.set(0, 0.5, 1.5);
-    flashlight.angle = Math.PI / 6;
-    flashlight.penumbra = 0.3;
-    flashlight.decay = 1.5;
-    flashlight.distance = 8;
+    const flashlight = new THREE.SpotLight(0xffffcc, 3);
+    flashlight.position.set(0, 0.3, 1.2);
+    flashlight.angle = Math.PI / 5;
+    flashlight.penumbra = 0.4;
+    flashlight.decay = 1.2;
+    flashlight.distance = 10;
     flashlight.castShadow = true;
+    
+    flashlight.shadow.mapSize.width = 1024;
+    flashlight.shadow.mapSize.height = 1024;
+    flashlight.shadow.camera.near = 0.5;
+    flashlight.shadow.camera.far = 15;
+    flashlight.shadow.bias = -0.001;
 
-    // Attach flashlight to camera
     this.camera.add(flashlight);
     this.scene.add(this.camera);
     this.flashlight = flashlight;
   }
 
-  createWater() {
-    const waterGeometry = new THREE.PlaneGeometry(4, this.segmentLength * this.tunnelLength);
-    const waterMaterial = new THREE.MeshPhongMaterial({
-      color: 0x224455,
-      transparent: true,
-      opacity: 0.6,
-      shininess: 90
-    });
-    this.waterMesh = new THREE.Mesh(waterGeometry, waterMaterial);
-    this.waterMesh.rotation.x = -Math.PI / 2;
-    this.waterMesh.position.y = -1.8;
-    this.waterMesh.position.z = -this.tunnelLength * this.segmentLength / 2;
-    this.scene.add(this.waterMesh);
-  }
-
   createTunnelSegment(position) {
-    const geometry = new THREE.CylinderGeometry(2, 2, this.segmentLength, 32, 1, true);
-    const material = new THREE.MeshPhongMaterial({
-      color: 0x555555,
+    const geometry = new THREE.CylinderGeometry(this.tunnelRadius, this.tunnelRadius, this.segmentLength, 32, 4, true);
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x444444,
       side: THREE.BackSide,
-      wireframe: false,
-      roughness: 0.9,
-      metalness: 0.1,
-      bumpScale: 0.02
+      roughness: 1,
+      metalness: 0.2,
+      bumpScale: 0.05
     });
 
     const segment = new THREE.Mesh(geometry, material);
@@ -87,56 +76,120 @@ class SewerGame {
     segment.receiveShadow = true;
     
     this.addSewerDetails(segment);
+    this.addBrickTexture(segment);
     
     this.tunnelSegments.push(segment);
     this.scene.add(segment);
   }
 
+  addBrickTexture(segment) {
+    const brickCount = 12;
+    const rowCount = 4;
+    
+    for (let i = 0; i < brickCount; i++) {
+      for (let j = 0; j < rowCount; j++) {
+        const brickGeometry = new THREE.BoxGeometry(0.1, 0.3, 0.05);
+        const brickMaterial = new THREE.MeshStandardMaterial({
+          color: 0x333333,
+          roughness: 1,
+          metalness: 0
+        });
+        
+        const brick = new THREE.Mesh(brickGeometry, brickMaterial);
+        const angle = (i / brickCount) * Math.PI * 2;
+        const height = (j / rowCount) * this.segmentLength - this.segmentLength / 2;
+        
+        brick.position.set(
+          Math.cos(angle) * (this.tunnelRadius - 0.05),
+          height,
+          Math.sin(angle) * (this.tunnelRadius - 0.05)
+        );
+        brick.lookAt(new THREE.Vector3(0, height, 0));
+        segment.add(brick);
+      }
+    }
+  }
+
   addSewerDetails(segment) {
-    // Add main pipes
-    for (let i = 0; i < 4; i++) {
-      const pipeGeometry = new THREE.CylinderGeometry(0.15, 0.15, this.segmentLength, 8);
-      const pipeMaterial = new THREE.MeshPhongMaterial({ 
-        color: 0x333333,
-        roughness: 0.7,
-        metalness: 0.3
+    const pipePositions = [
+      { angle: Math.PI / 6, y: -0.8 },
+      { angle: -Math.PI / 6, y: -0.8 },
+      { angle: Math.PI * 0.8, y: -0.5 },
+      { angle: -Math.PI * 0.8, y: -0.5 }
+    ];
+
+    pipePositions.forEach(pos => {
+      const pipeGeometry = new THREE.CylinderGeometry(0.15, 0.15, this.segmentLength, 12);
+      const pipeMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x2a2a2a,
+        roughness: 0.8,
+        metalness: 0.4
       });
-      const pipe = new THREE.Mesh(pipeGeometry, pipeMaterial);
       
+      const pipe = new THREE.Mesh(pipeGeometry, pipeMaterial);
       pipe.rotation.x = Math.PI / 2;
-      pipe.position.x = Math.cos(i * Math.PI / 2) * 1.8;
-      pipe.position.y = Math.sin(i * Math.PI / 2) * 1.8;
+      pipe.position.x = Math.cos(pos.angle) * this.tunnelRadius * 0.9;
+      pipe.position.y = pos.y;
+      pipe.position.z = Math.sin(pos.angle) * this.tunnelRadius * 0.9;
       pipe.castShadow = true;
       
-      segment.add(pipe);
+      const jointGeometry = new THREE.TorusGeometry(0.2, 0.05, 16, 32);
+      const joint = new THREE.Mesh(jointGeometry, pipeMaterial);
+      joint.position.y = Math.random() * this.segmentLength - this.segmentLength / 2;
+      pipe.add(joint);
 
-      // Add smaller pipes and valves
       if (Math.random() > 0.7) {
-        const valveGeometry = new THREE.TorusGeometry(0.2, 0.05, 16, 32);
-        const valve = new THREE.Mesh(valveGeometry, pipeMaterial);
-        valve.position.x = pipe.position.x * 1.1;
-        valve.position.y = pipe.position.y * 1.1;
-        valve.rotation.y = Math.PI / 2;
-        segment.add(valve);
+        const wheelGeometry = new THREE.TorusGeometry(0.15, 0.02, 16, 32);
+        const wheel = new THREE.Mesh(wheelGeometry, pipeMaterial);
+        wheel.rotation.y = Math.PI / 2;
+        wheel.position.y = Math.random() * this.segmentLength - this.segmentLength / 2;
+        pipe.add(wheel);
       }
-    }
+      
+      segment.add(pipe);
+    });
 
-    // Add dripping water particles
-    if (Math.random() > 0.8) {
-      const dripsGeometry = new THREE.SphereGeometry(0.02, 8, 8);
-      const dripsMaterial = new THREE.MeshPhongMaterial({
-        color: 0x6688aa,
-        transparent: true,
-        opacity: 0.6
-      });
-      for (let i = 0; i < 5; i++) {
-        const drip = new THREE.Mesh(dripsGeometry, dripsMaterial);
-        drip.position.x = (Math.random() - 0.5) * 3;
-        drip.position.y = Math.random() * 2 - 1;
-        drip.position.z = (Math.random() - 0.5) * this.segmentLength;
-        segment.add(drip);
+    if (Math.random() > 0.7) {
+      const createDrip = () => {
+        const dropGeometry = new THREE.SphereGeometry(0.02, 8, 8);
+        const dropMaterial = new THREE.MeshPhongMaterial({
+          color: 0x6688aa,
+          transparent: true,
+          opacity: 0.7,
+          shininess: 100
+        });
+        
+        const drip = new THREE.Mesh(dropGeometry, dropMaterial);
+        const angle = Math.random() * Math.PI * 2;
+        drip.position.set(
+          Math.cos(angle) * (this.tunnelRadius - 0.2),
+          Math.random() * this.segmentLength - this.segmentLength / 2,
+          Math.sin(angle) * (this.tunnelRadius - 0.2)
+        );
+        
+        return drip;
+      };
+
+      for (let i = 0; i < 8; i++) {
+        segment.add(createDrip());
       }
     }
+  }
+
+  createWater() {
+    const waterGeometry = new THREE.PlaneGeometry(4, this.segmentLength * this.tunnelLength);
+    const waterMaterial = new THREE.MeshPhongMaterial({
+      color: 0x224455,
+      transparent: true,
+      opacity: 0.8,
+      shininess: 90,
+      specular: 0x444444
+    });
+    this.waterMesh = new THREE.Mesh(waterGeometry, waterMaterial);
+    this.waterMesh.rotation.x = -Math.PI / 2;
+    this.waterMesh.position.y = this.waterLevel;
+    this.waterMesh.position.z = -this.tunnelLength * this.segmentLength / 2;
+    this.scene.add(this.waterMesh);
   }
 
   createTunnel() {
@@ -154,7 +207,6 @@ class SewerGame {
       }
     });
 
-    // Move water with tunnel
     if (this.waterMesh) {
       this.waterMesh.position.z += this.speed;
       if (this.waterMesh.position.z > 0) {
@@ -191,7 +243,6 @@ class SewerGame {
       this.renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // Enhanced keyboard controls for flashlight movement
     document.addEventListener('keydown', (e) => {
       if (!this.gameStarted) return;
       
@@ -216,5 +267,4 @@ class SewerGame {
   }
 }
 
-// Initialize the game
 new SewerGame();
